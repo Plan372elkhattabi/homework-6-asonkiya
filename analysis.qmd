@@ -1,8 +1,151 @@
 ---
-title: PLAN 372
-author: Your Name
+title: PLAN 372 HW 6
+author: Aryaman Sonkiya
 ---
 
-Place your analysis code in this file; you must not rename it, though you may delete these instructions. Please update the block above with the name of the assignment and with your name.When you push your code to github, it will automatically be rendered for grading. You can see whether the automatic rendering worked in the "Actions" tab of the github repository.
+```{r}
+#| message: false
+library(tidyverse)
+library(here)
+```
 
-If you use any libraries other than `tidyverse`, `lubridate`, `sf`, `ggplot2`, `here`, `terra`, `ggspatial`, `rJavaEnv`, and `r5r`, add them to the list in the DESCRIPTION file.
+```{r}
+trees <- read_csv(here("TS3_Raw_tree_data.csv"))
+```
+
+## Question 1: Sample sizes by state
+
+```{r}
+trees <- trees |>
+  mutate(
+    city_name = str_extract(City, "^(.+),", group = 1),
+    state = str_extract(City, ",\\s*([A-Z]{2})$", group = 1)
+  )
+```
+
+```{r}
+state_counts <- trees |>
+  count(state, sort = TRUE)
+
+state_counts
+```
+
+```{r}
+ggplot(state_counts, aes(x = reorder(state, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "State", y = "Number of Records", title = "Number of Tree Records by State")
+```
+
+There are 13 states in the dataset. California has the most records with 4,062, while Minnesota has the fewest with 760.
+
+## Question 2: Cities in NC/SC
+
+```{r}
+trees_ncsc <- trees |>
+  filter(state %in% c("NC", "SC"))
+
+trees_ncsc |>
+  distinct(city_name, state) |>
+  arrange(state, city_name)
+```
+
+Data was collected from Charlotte, NC and Charleston, SC.
+
+## Question 3: Genera and species
+
+```{r}
+trees_ncsc <- trees_ncsc |>
+  mutate(genus = str_extract(ScientificName, "^\\w+"))
+```
+
+```{r}
+genus_crown <- trees_ncsc |>
+  group_by(genus) |>
+  summarise(avg_crown_dia = mean(`AvgCdia (m)`, na.rm = TRUE)) |>
+  arrange(desc(avg_crown_dia))
+
+genus_crown
+```
+
+Quercus has the largest average crown diameter in NC/SC at about 13.6 meters.
+
+```{r}
+genus_crown |> slice(1)
+```
+
+## Question 4: Tree age
+
+```{r}
+genus_age <- trees_ncsc |>
+  group_by(genus) |>
+  summarise(avg_age = mean(Age, na.rm = TRUE)) |>
+  arrange(desc(avg_age))
+
+genus_age
+```
+
+```{r}
+genus_summary <- inner_join(genus_crown, genus_age, by = "genus")
+
+ggplot(genus_summary, aes(x = avg_age, y = avg_crown_dia)) +
+  geom_point() +
+  geom_text(aes(label = genus), hjust = -0.1, size = 2.5) +
+  labs(
+    x = "Average Age (years)",
+    y = "Average Crown Diameter (m)",
+    title = "Average Crown Diameter vs. Average Age by Genus (NC/SC)"
+  )
+```
+
+There are clear differences in average age across genera. Quercus also has the highest average age at about 35.6 years, which likely explains its large crown. Older trees have had more time to grow, so the age differences across genera partially explain the crown diameter results from Question 3.
+
+## AI Reflection
+
+I used Claude to help write the R code for this assignment, mainly for the regular expressions and structuring the analysis. I checked the outputs myself and made sure I understood what each step was doing. It was useful for getting the code written faster, but I still had to think through the logic on my own.
+
+## Extra Credit: Genera recommendation
+
+```{r}
+genus_efficiency <- trees_ncsc |>
+  filter(!is.na(`AvgCdia (m)`), !is.na(Age), Age > 0) |>
+  group_by(genus) |>
+  summarise(
+    avg_crown_dia = mean(`AvgCdia (m)`, na.rm = TRUE),
+    avg_age = mean(Age, na.rm = TRUE),
+    crown_per_year = avg_crown_dia / avg_age,
+    n = n()
+  ) |>
+  filter(n >= 5) |>
+  arrange(desc(crown_per_year))
+
+genus_efficiency
+```
+
+To find a genus that produces a large crown quickly, I computed crown diameter per year of age for each genus, filtering to genera with at least 5 observations. Ulmus ranks first at 0.58 meters of crown diameter per year, with an average crown of about 10 meters at only 17 years old. I recommend Ulmus for maximizing shade in a short timeframe.
+
+```{r}
+genus_efficiency |> slice(1)
+```
+
+## Extra Credit: Species
+
+```{r}
+trees <- trees |>
+  mutate(
+    genus = str_extract(ScientificName, "^\\w+"),
+    species = str_extract(ScientificName, "^\\w+\\s+(?:x\\s+)?(\\w+)", group = 1)
+  )
+```
+
+```{r}
+species_per_genus <- trees |>
+  filter(!is.na(species)) |>
+  distinct(genus, species) |>
+  count(genus, name = "num_species") |>
+  arrange(desc(num_species))
+
+species_per_genus
+```
+
+The regex handles hybrids, cultivars, and varieties by extracting only the species name. Across the full dataset, Pinus has the most species recorded at 15, followed by Quercus with 12.
